@@ -77,11 +77,11 @@ services:
     networks:
       backend:
         aliases: # so our containers can resolve the LB
-          - $DOMAIN
-          - $HOMESERVER_FQDN
-          - $ELEMENT_WEB_FQDN
-          - $ELEMENT_CALL_FQDN
-          - $MAS_FQDN
+          - ${DOMAIN}
+          - ${HOMESERVER_FQDN}
+          - ${ELEMENT_WEB_FQDN}
+          - ${ELEMENT_CALL_FQDN}
+          - ${MAS_FQDN}
     depends_on:
       init:
         condition: service_completed_successfully
@@ -96,7 +96,7 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; \
                  while [ -e /etc/letsencrypt/live ]; \
                  do sleep 30; certbot --webroot -w /var/www/certbot renew; \
-                 cp /etc/letsencrypt/live/$DOMAIN/*.pem /data/ssl; \
+                 cp /etc/letsencrypt/live/${DOMAIN}/*.pem /data/ssl; \
                  sleep 12h & wait $${!}; \
                  done;'"
 
@@ -150,6 +150,7 @@ services:
     environment:
       SYNAPSE_CONFIG_DIR: /data
       SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      SYNAPSE_FQDN: synapse.${DOMAIN}
     secrets:
       - synapse_signing_key
     depends_on:
@@ -177,6 +178,7 @@ services:
       - ${VOLUME_PATH}/data/ssl/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt
     environment:
       SYNAPSE_WORKER: synapse.app.generic_worker
+      SYNAPSE_GENERIC_WORKER_1_FQDN: synapse-generic-worker-1.${DOMAIN}
     # Expose port if required so your reverse proxy can send requests to this worker
     # Port configuration will depend on how the http listener is defined in the worker configuration file
     # ports:
@@ -200,6 +202,7 @@ services:
       - ${VOLUME_PATH}/data/ssl/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt
     environment:
       SYNAPSE_WORKER: synapse.app.federation_sender
+      SYNAPSE_FEDERATION_SENDER_1_FQDN: synapse-federation-sender-1.${DOMAIN}
     # ports:
     #   - 8082:8082
     secrets:
@@ -217,6 +220,8 @@ services:
       - ${VOLUME_PATH}/data/ssl/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt
     networks:
       - backend
+    environment:
+      MAS_FQDN: mas.${DOMAIN}
     # FIXME: do we also need to sync the db?
     command: "server --config=/data/config.yaml"
     depends_on:
@@ -234,6 +239,8 @@ services:
       # - 1025:1025
     networks:
       - backend
+    environment:
+      MAILHOG_FQDN: mailhog.${DOMAIN}
 
   element-web:
     image: vectorim/element-web:latest
@@ -252,6 +259,8 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+    environment:
+      ELEMENT_WEB_FQDN: element-web.${DOMAIN}
 
   element-call:
     image: ghcr.io/element-hq/element-call:latest-ci
@@ -265,6 +274,8 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+    environment:
+      ELEMENT_CALL_FQDN: element-call.${DOMAIN}
 
   livekit:
     image: livekit/livekit-server:latest
@@ -291,6 +302,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_started
+    environment:
+      LIVEKIT_FQDN: livekit.${DOMAIN}
 
   livekit-jwt:
     build:
@@ -321,3 +334,5 @@ services:
         condition: service_completed_successfully
       livekit:
         condition: service_started
+    environment:
+      LIVEKIT_JWT_FQDN: livekit-jwt.${DOMAIN}
