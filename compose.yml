@@ -1,5 +1,3 @@
-# FIXME: define a frontend & backend network, and only expose backend services to the frontend (nginx)
-
 networks:
   backend:
 
@@ -14,9 +12,6 @@ secrets:
     file: secrets/livekit/livekit_secret_key
 
 services:
-  # XXX: consider factor out secret generation from the compose.yml
-
-  # dependencies for optionally generating default configs + secrets
   generate-synapse-secrets:
     image: ghcr.io/element-hq/synapse:latest
     user: $USER_ID:$GROUP_ID
@@ -38,11 +33,8 @@ services:
     user: $USER_ID:$GROUP_ID
     volumes:
       - ${VOLUME_PATH}/data/mas:/data:rw
-    # FIXME: stop this regenerating a spurious default config every time
-    # We can't do the same approach as synapse (unless use a debug image of MAS) as MAS is distroless and has no bash.
     command: "config generate -o /data/config.yaml.default"
 
-  # dependency for templating /data-template into /data (having extracted any secrets from any default generated configs)
   init:
     build: init
     user: $USER_ID:$GROUP_ID
@@ -67,7 +59,6 @@ services:
       - "80:80"
       - "443:443"
       - "8448:8448"
-    # shutdown fast so we can iterate rapidly on compose.yml
     stop_grace_period: 0s
     volumes:
       - ${VOLUME_PATH}/data/nginx/conf.d:/etc/nginx/conf.d
@@ -76,7 +67,7 @@ services:
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
     networks:
       backend:
-        aliases: # so our containers can resolve the LB
+        aliases:
           - ${DOMAIN}
           - ${HOMESERVER_FQDN}
           - ${ELEMENT_WEB_FQDN}
@@ -93,12 +84,7 @@ services:
       - ${VOLUME_PATH}/data/certbot/conf:/etc/letsencrypt
       - ${VOLUME_PATH}/data/certbot/www:/var/www/certbot
       - ${VOLUME_PATH}/data/ssl:/data/ssl
-    entrypoint: "/bin/sh -c 'trap exit TERM; \
-                 while [ -e /etc/letsencrypt/live ]; \
-                 do sleep 30; certbot --webroot -w /var/www/certbot renew; \
-                 cp /etc/letsencrypt/live/${DOMAIN}/*.pem /data/ssl; \
-                 sleep 12h & wait $${!}; \
-                 done;'"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while [ -e /etc/letsencrypt/live ]; do sleep 30; certbot --webroot -w /var/www/certbot renew; cp /etc/letsencrypt/live/${DOMAIN}/*.pem /data/ssl; sleep 12h & wait $${!}; done;'"
 
   postgres:
     image: postgres:latest
@@ -110,10 +96,10 @@ services:
       - backend
     environment:
       POSTGRES_MULTIPLE_DATABASES: synapse,mas
-      POSTGRES_USER: matrix # FIXME: use different username+passwords for synapse & MAS DBs.
+      POSTGRES_USER: matrix
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
-      PGDATA: /var/lib/postgresql/data/data # otherwise it clashes with .gitkeep in the parent dir
+      PGDATA: /var/lib/postgresql/data/data
     secrets:
       - postgres_password
     healthcheck:
@@ -128,11 +114,6 @@ services:
   redis:
     image: redis:latest
     restart: unless-stopped
-    # healthcheck:
-    #   test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-    #   interval: 1s
-    #   timeout: 3s
-    #   retries: 5
     networks:
       - backend
 
@@ -143,8 +124,6 @@ services:
     volumes:
       - ${VOLUME_PATH}/data/synapse:/data:rw
       - ${VOLUME_PATH}/data/ssl/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt
-    # ports:
-    #   - 8008:8008
     networks:
       - backend
     environment:
@@ -179,10 +158,6 @@ services:
     environment:
       SYNAPSE_WORKER: synapse.app.generic_worker
       SYNAPSE_GENERIC_WORKER_1_FQDN: synapse-generic-worker-1.${DOMAIN}
-    # Expose port if required so your reverse proxy can send requests to this worker
-    # Port configuration will depend on how the http listener is defined in the worker configuration file
-    # ports:
-    #   - 8081:8081
     secrets:
       - synapse_signing_key
     depends_on:
@@ -198,13 +173,11 @@ services:
     networks:
       - backend
     volumes:
-      - ${VOLUME_PATH}/data/synapse:/data:rw # Replace VOLUME_PATH with the path to your Synapse volume
+      - ${VOLUME_PATH}/data/synapse:/data:rw
       - ${VOLUME_PATH}/data/ssl/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt
     environment:
       SYNAPSE_WORKER: synapse.app.federation_sender
       SYNAPSE_FEDERATION_SENDER_1_FQDN: synapse-federation-sender-1.${DOMAIN}
-    # ports:
-    #   - 8082:8082
     secrets:
       - synapse_signing_key
     depends_on:
@@ -213,8 +186,6 @@ services:
   mas:
     image: ghcr.io/element-hq/matrix-authentication-service:latest
     restart: unless-stopped
-    # ports:
-    #   - 8083:8080
     volumes:
       - ${VOLUME_PATH}/data/mas:/data:rw
       - ${VOLUME_PATH}/data/ssl/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt
@@ -222,7 +193,6 @@ services:
       - backend
     environment:
       MAS_FQDN: mas.${DOMAIN}
-    # FIXME: do we also need to sync the db?
     command: "server --config=/data/config.yaml"
     depends_on:
       postgres:
@@ -230,13 +200,9 @@ services:
       init:
         condition: service_completed_successfully
 
-  # as a basic local MTA
   mailhog:
     image: mailhog/mailhog:latest
     restart: unless-stopped
-    # ports:
-      # - 8025:8025
-      # - 1025:1025
     networks:
       - backend
     environment:
@@ -245,8 +211,6 @@ services:
   element-web:
     image: vectorim/element-web:latest
     restart: unless-stopped
-    # ports:
-    #   - 8080:80
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:80/version || exit 1"]
       start_period: "5s"
@@ -265,8 +229,6 @@ services:
   element-call:
     image: ghcr.io/element-hq/element-call:latest-ci
     restart: unless-stopped
-    # ports:
-    #   - 8082:80
     networks:
       - backend
     volumes:
@@ -284,17 +246,7 @@ services:
       - ${VOLUME_PATH}/data/livekit/config.yaml:/etc/livekit.yaml
     command: --config /etc/livekit.yaml --node-ip ${LIVEKIT_NODE_IP}
     ports:
-      # - 7880:7880 # HTTP listener
-      - 7881:7881 # TCP WebRTC transport, advertised via SDP
-
-      # TODO: expose livekit-turn on TCP & UDP 443 via nginx
-      # At least this would allow UDP turn on port 443 for better perf.
-
-      # You can't expose a massive range here as it literally sets up 10,000 userland listeners, which takes forever
-      # and will clash with any existing high-numbered ports.
-      # So for now, tunnel everything via TCP 7881. FIXME!
-      #- 50000-60000:50000-60000/tcp # TCP media
-      #- 50000-60000:50000-60000/udp # UDP media
+      - 7881:7881
     networks:
       - backend
     depends_on:
@@ -307,9 +259,6 @@ services:
 
   livekit-jwt:
     build:
-      # evil hack to pull in bash so we can run an entrypoint.sh
-      # FIXME: it's a bit wasteful; the alternative would be to modify lk-jwt-service to pick up secrets from disk
-      # Another alternative would be to factor out secret generation from compose.yml and create an .env up front
       dockerfile_inline: |
         FROM ghcr.io/element-hq/lk-jwt-service:latest-ci AS builder
         FROM alpine:latest
