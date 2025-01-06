@@ -13,8 +13,6 @@ secrets:
     file: secrets/livekit/livekit_secret_key
 
 services:
-  # ... (other services remain unchanged)
-
   nginx:
     image: nginx:latest
     restart: unless-stopped
